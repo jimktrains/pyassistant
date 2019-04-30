@@ -17,7 +17,6 @@ def load(modules_to_load):
             actions[action_name] = method
 
 def exec_request(cur_req):
-    print(actions.keys())
     if len(cur_req) < 1:
         return "Error: No action"
     cmd = cur_req[0]
@@ -31,7 +30,8 @@ def exec_request(cur_req):
     return actions[cmd](*args)
 
 def process_request(req):
-    req = shlex.split(req)
+    if type(req) is str:
+        req = shlex.split(req)
 
     cur_req = []
     last_resp = None
