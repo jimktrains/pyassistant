@@ -2,6 +2,11 @@
 
 import argparse
 import shlex
+import os
+import sqlite3
+
+cache_db_file = "cache.sqlite3"
+cache_db = None
 
 modules = {}
 actions = {}
@@ -64,4 +69,28 @@ def with_parser(prog, description):
             return resp
         return x
     return y
+
+def cache_until(key, value, exp):
+    t = (key, value, exp)
+    cache_db.execute("insert into cache (cache_key, cache_value, expires_at) values (?,?,?)", t)
+    cache_db.commit()
+
+def cache_get(key):
+    flush_cache()
+    for row in cache_db.execute("select cache_value from cache where cache_key = ?", (key,)):
+        return row[0]
+
+def flush_cache():
+    cache_db.execute("delete from cache where current_timestamp > expires_at")
+    cache_db.commit()
+
+if not os.path.exists(cache_db_file):
+    cache_db = sqlite3.connect(cache_db_file)
+    cache_db.execute("create table cache (id integer primary key autoincrement, " + 
+                     "cache_key varchar(160) not null, " + 
+                     "cache_value text not null, " + 
+                     "expires_at datetime not null)")
+    cache_db.commit()
+else:
+    cache_db = sqlite3.connect(cache_db_file)
 
