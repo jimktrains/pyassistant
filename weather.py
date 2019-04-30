@@ -32,17 +32,39 @@ def get(parser, *args):
             modules.cache_until('weather-test', contents, one_hour_more)
 
         root = ET.fromstring(contents)
+
+        return (
+            (get_formatted_temp(root, 'minimum', 1)) + "/" + (get_formatted_temp(root, 'maximum', 1)) + "\n" + 
+            (get_weather_formatted(root, 1)) + "/" + (get_weather_formatted(root, 2))
+        )
+
+
+        # These were too long for sms
         for wordedForecast in root.findall('.//wordedForecast'):
             time_layout = wordedForecast.attrib['time-layout']
-            # [.='text'] in 3.7 :-\
-            first_period_name = None
-            for timelayout_elm in root.findall(".//time-layout"):
-                layout_key = timelayout_elm.find('.//layout-key')
-                if time_layout == layout_key.text:
-                    period = timelayout_elm.find('.//start-valid-time[1]')
-                    first_period_name = period.attrib['period-name']
-                    break
+            first_period_name = get_time_period(root, time_layout, 1)
             first_worded_forecast = wordedForecast.find('.//text[1]').text
             if first_period_name is not None:
                 first_worded_forecast = first_period_name + ": " + first_worded_forecast
             return first_worded_forecast
+
+def get_weather_formatted(root, idx):
+    weathers = root.find('.//weather')
+    weather_period = get_time_period(root, weathers.attrib['time-layout'], idx)
+    weather        = weathers.find('.//weather-conditions['+str(idx)+']').attrib['weather-summary']
+    return weather_period + " " + weather
+
+def get_formatted_temp(root, minmax, idx):
+    temps = root.find(".//temperature[@type='"+minmax+"']")
+    temp  = temps.find('./value['+str(idx)+']').text
+    temp_period = get_time_period(root, temps.attrib['time-layout'], idx)
+    return temp_period + " " + temp
+
+def get_time_period(root, time_layout, idx):
+    for timelayout_elm in root.findall(".//time-layout"):
+        # [.='text'] in 3.7 :-\
+        layout_key = timelayout_elm.find('.//layout-key')
+        if time_layout == layout_key.text:
+            period = timelayout_elm.find('.//start-valid-time['+str(idx)+']')
+            return period.attrib['period-name']
+
