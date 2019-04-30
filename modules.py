@@ -4,12 +4,14 @@ import argparse
 import shlex
 import os
 import sqlite3
+import configparser
 
 cache_db_file = "cache.sqlite3"
 cache_db = None
 
 modules = {}
 actions = {}
+
 
 def load(modules_to_load):
     for module in modules_to_load:
@@ -94,3 +96,5 @@ if not os.path.exists(cache_db_file):
 else:
     cache_db = sqlite3.connect(cache_db_file)
 
+config = configparser.ConfigParser()
+config.read('config.ini')
