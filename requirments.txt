@@ -3,4 +3,4 @@ twilio
 
 # Only to receive webooks
 flask
-gevent
+werkzeug
