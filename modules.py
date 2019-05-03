@@ -5,6 +5,10 @@ import shlex
 import os
 import sqlite3
 import configparser
+from pathlib import Path
+import logging
+
+logger = logging.getLogger()
 
 cache_db_file = "cache.sqlite3"
 cache_db = None
@@ -23,7 +27,10 @@ def load(modules_to_load):
                 action_name += "." + action
             actions[action_name] = method
 
-def exec_request(cur_req):
+def module(name):
+    return modules[name]
+
+def exec_request(cur_req, fstdin):
     if len(cur_req) < 1:
         return "Error: No action"
     cmd = cur_req[0]
@@ -34,7 +41,7 @@ def exec_request(cur_req):
     if len(cur_req) > 1:
         args = cur_req[1:]
 
-    return actions[cmd](*args)
+    return actions[cmd](fstdin, *args)
 
 def process_request(req):
     if type(req) is str:
@@ -43,15 +50,13 @@ def process_request(req):
     cur_req = []
     last_resp = None
     for cur_val in req:
-        if cur_val == "|":
-            cur_req.append(last_resp)
-            last_resp = exec_request(cur_req)
+        if cur_val in ['|', ',,']:
+            last_resp = exec_request(cur_req, last_resp)
             cur_req = []
         else:
             cur_req.append(cur_val)
     if len(cur_req) != 0:
-        cur_req.append(last_resp)
-        last_resp = exec_request(cur_req)
+        last_resp = exec_request(cur_req, last_resp)
 
     return last_resp
 
@@ -62,10 +67,10 @@ def make_argparse(prog, description):
 
 def with_parser(prog, description):
     def y(func):
-        def x(*args):
+        def x(fstdin, *args):
             args = filter(None, args)
             parser = make_argparse(prog, description)
-            resp = func(parser, *args)
+            resp = func(parser, fstdin, *args)
             if resp is None:
                 return parser.format_help()
             return resp
@@ -97,4 +102,20 @@ else:
     cache_db = sqlite3.connect(cache_db_file)
 
 config = configparser.ConfigParser()
-config.read('config.ini')
+dir_path = os.path.dirname(os.path.realpath(__file__))
+home_dir = str(Path.home())
+
+config_options = [
+    # pyassistant.ini in current dir
+    "pyassistant.ini",
+    # ~/.config folder
+    home_dir + "/.config/pyassistant.ini",
+]
+
+for config_file in config_options:
+    logger.info("checking if config exists: " + config_file)
+    if os.path.exists(config_file):
+        break
+
+logger.info("Trying to load config " + config_file)
+config.read(config_file)

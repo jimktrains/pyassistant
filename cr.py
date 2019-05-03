@@ -19,7 +19,7 @@ def actions():
 
 
 @modules.with_parser("cr.add", "Adds a Challenge to the database")
-def add_challenge(parser, *args):
+def add_challenge(parser, fstdin, *args):
     parser.add_argument('text', nargs="+", help="the text of the challenge")
     args = parser.parse_args(args)
 
@@ -30,14 +30,14 @@ def add_challenge(parser, *args):
         return cursor.lastrowid
 
 @modules.with_parser("cr.show_challenges", "Shows Challenges")
-def show_challenges(parser, *args):
+def show_challenges(parser, fstdin, *args):
     resp = "id\ttext\n"
     for row in database.execute("select id, text from challenge"):
         resp += str(row[0]) + "\t" + row[1] + "\n";
     return resp
 
 @modules.with_parser("cr.challenge", "Provides the challenge")
-def challenge(parser, *args):
+def challenge(parser, fstdin, *args):
     parser.add_argument('person', help="id for the person")
     parser.add_argument('challenge', help="id for the challenge")
     args = parser.parse_args(args)
@@ -49,7 +49,7 @@ def challenge(parser, *args):
             return row[0]
 
 @modules.with_parser("cr.response", "Store a response")
-def response(parser, *args):
+def response(parser, fstdin, *args):
     parser.add_argument('person', help="id for the person")
     parser.add_argument('response', help="response")
     args = parser.parse_args(args)
@@ -57,10 +57,10 @@ def response(parser, *args):
     if args.person and args.response:
         cursor = database.execute("insert into responses (person, response) values (?,?)", (args.person, args.response))
         database.commit()
-        return cursor.lastrowid
+        return str(cursor.lastrowid)
 
 @modules.with_parser("cr.challenge_after", "Challenge if no response after so many hours or a negative response")
-def challenge_after(parser, *args):
+def challenge_after(parser, fstdin, *args):
     parser.add_argument('person', help="id for the person")
     parser.add_argument('challenge', help="id for the challenge")
     parser.add_argument('hours', help="Ask again if this many hours without a response or a negative response")
