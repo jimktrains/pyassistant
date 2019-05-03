@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 
-from gevent.pywsgi import WSGIServer
+from werkzeug.serving import run_simple
 from flask import Flask
+from twilio.twiml.messaging_response import MessagingResponse
+
 app = Flask(__name__)
 
 
-@app.route("/pyassistant/receive")
+@app.route("/pyassistant/receive", methods=['POST'])
 def receive():
-    return "Hello World!"
+    resp = MessagingResponse()
+    resp.message("The Robots are coming! Head for the hills!")
+    return str(resp)
 
-
-if __name__ == '__main__':
-    # Debug/Development
-    # app.run(debug=True, host="0.0.0.0", port="5000")
-    # Production
-    http_server = WSGIServer(('127.0.0.1', 5000), app)
-    http_server.serve_forever()
+if __name__ == "__main__":
+    run_simple("localhost", 5000, app)
