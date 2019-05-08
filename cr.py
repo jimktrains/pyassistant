@@ -47,6 +47,7 @@ def challenge(parser, fstdin, *args):
         database.commit()
         for row in database.execute("select text from challenge where id = ?", (args.challenge, )):
             return row[0]
+        return f"Challenge {args.challenge} doesn't exist"
 
 @modules.with_parser("cr.response", "Store a response")
 def response(parser, fstdin, *args):
