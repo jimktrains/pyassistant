@@ -1,5 +1,7 @@
 *.ini
 *.sqlite3
+www2.census.gov
+*.dbf
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

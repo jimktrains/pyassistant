@@ -4,12 +4,42 @@ import modules
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
+import dbf
+
+ziptable = dbf.Table(modules.config['storage']['zipdbf'])
+ziptable.open()
+zipidx = ziptable.create_index(lambda rec: rec.zcta5ce10)
 
 def actions():
     return {
         '': get,
         'get': get,
     }
+
+def get_weather_et(zipcode):
+    if zipcode:
+        records = zipidx.search(match=(zipcode,))
+        lat = None
+        lon = None
+        for record in records:
+            lat = record.intptlat10
+            lon = record.intptlon10
+            break
+
+        if lat is None or lon is None:
+            return f"No lat/lon found for {zipcode}"
+
+        cache_key = f"weather:{zipcode}"
+        contents = modules.cache_get(cache_key)
+        if contents is None:
+            one_hour_more = datetime.utcnow() + timedelta(hours=1)
+            url = f"https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}&unit=0&lg=english&FcstType=dwml"
+            contents = urllib.request.urlopen(url).read()
+            modules.cache_until(cache_key, contents, one_hour_more)
+
+        return ET.fromstring(contents)
+    else:
+        return None
 
 @modules.with_parser("weather.get", "Gets the weather for a zipcode")
 def get(parser, fstdin, *args):
@@ -22,37 +52,25 @@ def get(parser, fstdin, *args):
             default_zip = modules.config['weather']['default_zip']
     zipcode = args.zipcode or default_zip
 
-    if zipcode:
-        # Hmm, we'll have to use
-        # https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest?f=json&countryCode=USA,PRI,VIR,GUM,ASM&category=Land+Features,Bay,Channel,Cove,Dam,Delta,Gulf,Lagoon,Lake,Ocean,Reef,Reservoir,Sea,Sound,Strait,Waterfall,Wharf,Amusement+Park,Historical+Monument,Landmark,Tourist+Attraction,Zoo,College,Beach,Campground,Golf+Course,Harbor,Nature+Reserve,Other+Parks+and+Outdoors,Park,Racetrack,Scenic+Overlook,Ski+Resort,Sports+Center,Sports+Field,Wildlife+Reserve,Airport,Ferry,Marina,Pier,Port,Resort,Postal,Populated+Place&maxSuggestions=10&text=15216&_=1556593710026
-        # https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/find?text=15216&magicKey=dHA9MCNsb2M9NDQ2NzEzNSNsbmc9MzMjcGw9MTUzMDkwMSNsYnM9MTQ6NjU5Mzc1&f=json&_=1556593710027
-        # like weather.gov or some other zipcode mapping
+    root = get_weather_et(zipcode)
 
-        contents = modules.cache_get('weather-test')
-        if contents is None:
-            # this feels dirty
-            utc_delta = datetime.utcnow()-datetime.now()
-            one_hour_more = datetime.now() + timedelta(hours=1) + utc_delta
-            url = "https://forecast.weather.gov/MapClick.php?lat=40.4109&lon=-80.0244&unit=0&lg=english&FcstType=dwml"
-            contents = urllib.request.urlopen(url).read()
-            modules.cache_until('weather-test', contents, one_hour_more)
+    if root is None:
+        return "No valid zipcode provided"
 
-        root = ET.fromstring(contents)
-
-        return (
-            (get_formatted_temp(root, 'minimum', 1)) + "/" + (get_formatted_temp(root, 'maximum', 1)) + "\n" + 
-            (get_weather_formatted(root, 1)) + "/" + (get_weather_formatted(root, 2))
-        )
+    return (
+        (get_formatted_temp(root, 'minimum', 1)) + "/" + (get_formatted_temp(root, 'maximum', 1)) + "\n" + 
+        (get_weather_formatted(root, 1)) + "/" + (get_weather_formatted(root, 2))
+    )
 
 
-        # These were too long for sms
-        for wordedForecast in root.findall('.//wordedForecast'):
-            time_layout = wordedForecast.attrib['time-layout']
-            first_period_name = get_time_period(root, time_layout, 1)
-            first_worded_forecast = wordedForecast.find('.//text[1]').text
-            if first_period_name is not None:
-                first_worded_forecast = first_period_name + ": " + first_worded_forecast
-            return first_worded_forecast
+    # These were too long for sms
+    for wordedForecast in root.findall('.//wordedForecast'):
+        time_layout = wordedForecast.attrib['time-layout']
+        first_period_name = get_time_period(root, time_layout, 1)
+        first_worded_forecast = wordedForecast.find('.//text[1]').text
+        if first_period_name is not None:
+            first_worded_forecast = first_period_name + ": " + first_worded_forecast
+        return first_worded_forecast
 
 def get_weather_formatted(root, idx):
     weathers = root.find('.//weather')

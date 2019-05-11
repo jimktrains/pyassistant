@@ -1,3 +1,6 @@
+# To read the ZCTA5 database file
+dbf
+
 # Only if you use out.sms
 twilio
 
