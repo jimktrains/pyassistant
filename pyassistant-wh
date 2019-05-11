@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+
+from werkzeug.serving import run_simple
+from flask import Flask, request, redirect
+from twilio.twiml.messaging_response import MessagingResponse
+import modules
+
+app = Flask(__name__)
+
+modules_to_load = [
+    "weather",
+    "echo",
+    "out",
+    "cr",
+]
+modules.load(modules_to_load)
+
+def with_twilio(fun):
+    def f():
+        resp = MessagingResponse()
+        resp = fun(resp)
+        return str(resp)
+    return f
+
+
+@app.route("/pyassistant/receive", methods=['POST'])
+@with_twilio
+def receive(resp):
+    crresp = modules.module('cr').response(None, request.form['From'], request.form['Body'])
+    resp.message(crresp)
+    return resp
+
+if __name__ == "__main__":
+    run_simple("localhost", 5000, app)
