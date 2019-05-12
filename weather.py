@@ -12,6 +12,7 @@ import math
 
 ziptable = dbf.Table(modules.config['storage']['zipdbf'])
 ziptable.open()
+# Yeah, so this is slow and I need to figure out how to persist it.
 zipidx = ziptable.create_index(lambda rec: rec.zcta5ce10)
 
 ts = api.load.timescale()
@@ -26,9 +27,21 @@ def actions():
         'srss' : astronomical,
     }
 
+def with_zipcode(fcn):
+    def parse_with_zipcode(parser, fstdin, *args):
+        default_zip = None
+        if 'weather' in modules.config:
+            if 'default_zip' in modules.config['weather']:
+                default_zip = modules.config['weather']['default_zip']
+        parser.add_argument('zipcode', nargs="?", help="zipcode to get the weather for", default=default_zip)
+        return fcn(parser, fstdin, *args)
+
+    return parse_with_zipcode
+
 @modules.with_parser("weather.astronomical", "gets the next sunrise and sunset for zipcode")
+@with_zipcode
 def astronomical(parser, fstdin, *args):
-    args = parse_with_zipcode(parser, args)
+    args = parser.parse_args(args)
     lat, lon = zipcode_to_latlon(args.zipcode)
 
     if lat and lon:
@@ -59,23 +72,14 @@ def zipcode_to_latlon(zipcode):
         return (lat, lon)
     return (None, None)
 
-def parse_with_zipcode(parser, args):
-    default_zip = None
-    if 'weather' in modules.config:
-        if 'default_zip' in modules.config['weather']:
-            default_zip = modules.config['weather']['default_zip']
-    parser.add_argument('zipcode', nargs="?", help="zipcode to get the weather for", default=default_zip)
-    args = parser.parse_args(args)
-    return args
 
 
 def get_weather_et(parser, args):
-    args = parse_with_zipcode(parser, args)
+    args = parser.parse_args(args)
     lat, lon = zipcode_to_latlon(args.zipcode)
 
     if lat and lon:
-
-        cache_key = f"weather:{zipcode}"
+        cache_key = f"weather:{args.zipcode}"
         contents = modules.cache_get(cache_key)
         if contents is None:
             one_hour_more = datetime.utcnow() + timedelta(hours=1)
@@ -91,6 +95,7 @@ def get_weather_et(parser, args):
         return None
 
 @modules.with_parser("weather.details", "Gets the detailed weather for a zipcode")
+@with_zipcode
 def details(parser, fstdin, *args):
     root = get_weather_et(parser, args)
     print_tree(root)
@@ -108,6 +113,7 @@ def print_tree(root, prefix = None):
 
 
 @modules.with_parser("weather.get", "Gets the weather for a zipcode")
+@with_zipcode
 def get(parser, fstdin, *args):
     root = get_weather_et(parser, args)
 
@@ -177,7 +183,7 @@ def get(parser, fstdin, *args):
     mon = month_abbriv(now)
     dom = now.strftime('%d')
 
-    response = f"{dow}{mon}{dom} "
+    response = f"{dow}{mon}{dom}"
     for hour_dt, idx in hours_lookup:
         hour = hour_dt.strftime("%H")
         temp = int(lookup(root, 'temperature', idx))
@@ -186,9 +192,8 @@ def get(parser, fstdin, *args):
         wind_dir = human_dir(int(lookup(root, 'direction[@type="wind"]', idx)))
         chance_precip = int(lookup(root, 'probability-of-precipitation', idx))
         # I don't like hardcoding the F unit
-        response += f"/{hour} {temp}F {cloud_cover:02}O {wind_speed}{wind_dir} {chance_precip:02}P "
+        response += f"\n{hour} {temp}F {cloud_cover:02}O {chance_precip:02}P {wind_speed}{wind_dir}"
     response = response.strip()
-    print(len(response))
     return response
 
 def human_dir(bearing):
