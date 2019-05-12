@@ -1,10 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.7
 
 import modules
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 import dbf
+import json
 
 ziptable = dbf.Table(modules.config['storage']['zipdbf'])
 ziptable.open()
@@ -14,35 +15,10 @@ def actions():
     return {
         '': get,
         'get': get,
+        'details': details,
     }
 
-def get_weather_et(zipcode):
-    if zipcode:
-        records = zipidx.search(match=(zipcode,))
-        lat = None
-        lon = None
-        for record in records:
-            lat = record.intptlat10
-            lon = record.intptlon10
-            break
-
-        if lat is None or lon is None:
-            return f"No lat/lon found for {zipcode}"
-
-        cache_key = f"weather:{zipcode}"
-        contents = modules.cache_get(cache_key)
-        if contents is None:
-            one_hour_more = datetime.utcnow() + timedelta(hours=1)
-            url = f"https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}&unit=0&lg=english&FcstType=dwml"
-            contents = urllib.request.urlopen(url).read()
-            modules.cache_until(cache_key, contents, one_hour_more)
-
-        return ET.fromstring(contents)
-    else:
-        return None
-
-@modules.with_parser("weather.get", "Gets the weather for a zipcode")
-def get(parser, fstdin, *args):
+def get_weather_et(parser, args):
     parser.add_argument('zipcode', nargs="?", help="zipcode to get the weather for")
     args = parser.parse_args(args)
 
@@ -52,43 +28,200 @@ def get(parser, fstdin, *args):
             default_zip = modules.config['weather']['default_zip']
     zipcode = args.zipcode or default_zip
 
-    root = get_weather_et(zipcode)
+    if zipcode:
+        records = zipidx.search(match=(zipcode,))
+        lat = None
+        lon = None
+        for record in records:
+            lat = float(record.intptlat10)
+            lon = float(record.intptlon10)
+            break
+
+        if lat is None or lon is None:
+            return f"No lat/lon found for {zipcode}"
+
+        cache_key = f"weather:{zipcode}"
+        contents = modules.cache_get(cache_key)
+        if contents is None:
+            one_hour_more = datetime.utcnow() + timedelta(hours=1)
+            url = f"https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}&FcstType=digitalDWML"
+            contents = urllib.request.urlopen(url).read()
+            modules.cache_until(cache_key, contents, one_hour_more)
+
+        parser = ET.XMLParser()
+        parser.entity['nbsp'] = ' '
+
+        return ET.fromstring(contents, parser=parser)
+    else:
+        return None
+
+@modules.with_parser("weather.details", "Gets the detailed weather for a zipcode")
+def details(parser, fstdin, *args):
+    root = get_weather_et(parser, args)
+    print_tree(root)
+
+def print_tree(root, prefix = None):
+    if prefix is None:
+        prefix = ''
+    attribs = ''
+    if len(root.attrib):
+        attribs = f"({root.attrib})"
+    print(f"{prefix}{root.tag}{attribs}: {root.text}")
+    for child in root:
+        print_tree(child, prefix + "  ")
+
+
+
+@modules.with_parser("weather.get", "Gets the weather for a zipcode")
+def get(parser, fstdin, *args):
+    root = get_weather_et(parser, args)
 
     if root is None:
         return "No valid zipcode provided"
 
-    return (
-        (get_formatted_temp(root, 'minimum', 1)) + "/" + (get_formatted_temp(root, 'maximum', 1)) + "\n" + 
-        (get_weather_formatted(root, 1)) + "/" + (get_weather_formatted(root, 2))
-    )
+    #0         1         2         3         4         5         6    
+    #0123456789012345678901234567890123456789012345678901234567890123456789
+    #ABB CCCC DDDD /EE FFGG HH IIJJJ KK /EE...
+
+    #                              1         1         1         1
+    #7         8        9          0         1         2         3
+    #0123456789012345678901234567890123456789012345678901234567890123456789
+    #
+
+    #1         1
+    #4         5
+    #01234567890123456789
+    #
+
+    # A = Day of Week (SMTWHFA)
+    # B = Day of Month
+    # C = Sunrise
+    # D = Sunset
+    # E = Hour for forecast
+    # F = High temp
+    # G = Low temp
+    # H = Cloud Cover
+    # I = Wind Speed
+    # J = Wind Direction (N NNE NE ENE ...)
+    # K = Chance of percipitation
+
+    # Hours
+    hours =     [6, 9, 12, 15, 18, 21]
+    hours_lookup = []
+
+    one_day = timedelta(days=1)
+    now = datetime.today().astimezone()
+    for hour in hours:
+        target_time = datetime.today().astimezone().replace(hour=hour, minute=00, second=00, microsecond=00)
+        if target_time < now:
+            target_time += one_day
+        min_diff = timedelta(hours=999)
+        min_idx = None
+
+        # There is probably a better way to do this, but since it's such a
+        # small set, we're just going to do it the naive way.
+
+        # So, the file can have multiple timelayouts, but this one doesn't
+        # so, we're going to cheat.
+        for time_layout in root.findall('.//time-layout'):
+            for idx, node in enumerate(time_layout.findall('.//start-valid-time')):
+                this_time = datetime.strptime(node.text, "%Y-%m-%dT%H:%M:%S%z")
+                diff = abs(this_time - target_time)
+                if diff < min_diff:
+                    min_diff = diff
+                    min_idx = idx
+            break
+        if min_idx is None:
+            return f"No time found for hour {hour}"
+        hours_lookup.append((target_time, min_idx))
+
+    # Sort for nearest to now
+    hours_lookup = sorted(hours_lookup, key=lambda x: x[0])
+
+    dow = day_of_week_abbriv(now)
+    mon = month_abbriv(now)
+    dom = now.strftime('%d')
+
+    response = f"{dow}{mon}{dom} "
+    for hour_dt, idx in hours_lookup:
+        hour = hour_dt.strftime("%H")
+        temp = int(lookup(root, 'temperature', idx))
+        cloud_cover = int(lookup(root, 'cloud-amount', idx))
+        wind_speed = int(lookup(root, 'wind-speed[@type="sustained"]', idx))
+        wind_dir = human_dir(int(lookup(root, 'direction[@type="wind"]', idx)))
+        chance_precip = int(lookup(root, 'probability-of-precipitation', idx))
+        # I don't like hardcoding the F unit
+        response += f"/{hour} {temp}F {cloud_cover:02}O {wind_speed}{wind_dir} {chance_precip:02}P "
+    response = response.strip()
+    print(len(response))
+    return response
+
+def human_dir(bearing):
+    base_lookup_table = {
+        0: "N",
+        22: "NNE",
+        45: "NE",
+        67: "ENE",
+        90: "E",
+        112: "ESE",
+        135: "SE",
+        157: "SSE",
+        180: "S",
+        202: "SSW",
+        225: "SW",
+        247: "WSE",
+        270: "W",
+        292: "WNW",
+        315: "NW",
+        337: "NNW",
+        360: "N",
+    }
+
+    lookup_table = {}
+    low_keys = base_lookup_table.keys()
+    high_keys = list(base_lookup_table.keys())[1:]
+    for b,e in zip(low_keys, high_keys):
+        lookup_table[int((b+e)/2) % 360] = b
+
+    for threshold in lookup_table.keys():
+        if bearing <= threshold:
+            base_bearing = lookup_table[threshold]
+            return base_lookup_table[base_bearing]
+    return 'N'
+
+def lookup(root, item, idx):
+    node = root.find(f".//{item}/value[{idx}]")
+    if node is not None:
+        if 'nil' in node.attrib:
+            return '0'
+        return node.text
 
 
-    # These were too long for sms
-    for wordedForecast in root.findall('.//wordedForecast'):
-        time_layout = wordedForecast.attrib['time-layout']
-        first_period_name = get_time_period(root, time_layout, 1)
-        first_worded_forecast = wordedForecast.find('.//text[1]').text
-        if first_period_name is not None:
-            first_worded_forecast = first_period_name + ": " + first_worded_forecast
-        return first_worded_forecast
+def month_abbriv(dt):
+    lookup_table = {
+        1: "J",
+        2: "F",
+        3: "R",
+        4: "A",
+        5: "Y",
+        6: "U",
+        7: "L",
+        8: "G",
+        9: "S",
+        10: "O",
+        11: "N",
+        12: "D"
+    }
+    return lookup_table[dt.month]
 
-def get_weather_formatted(root, idx):
-    weathers = root.find('.//weather')
-    weather_period = get_time_period(root, weathers.attrib['time-layout'], idx)
-    weather        = weathers.find('.//weather-conditions['+str(idx)+']').attrib['weather-summary']
-    return weather_period + " " + weather
-
-def get_formatted_temp(root, minmax, idx):
-    temps = root.find(".//temperature[@type='"+minmax+"']")
-    temp  = temps.find('./value['+str(idx)+']').text
-    temp_period = get_time_period(root, temps.attrib['time-layout'], idx)
-    return temp_period + " " + temp
-
-def get_time_period(root, time_layout, idx):
-    for timelayout_elm in root.findall(".//time-layout"):
-        # [.='text'] in 3.7 :-\
-        layout_key = timelayout_elm.find('.//layout-key')
-        if time_layout == layout_key.text:
-            period = timelayout_elm.find('.//start-valid-time['+str(idx)+']')
-            return period.attrib['period-name']
-
+def day_of_week_abbriv(dt):
+    lookup_table = [
+        "M",
+        "T",
+        "W",
+        "H",
+        "F",
+        "A",
+        "S",
+    ]
+    return lookup_table[dt.weekday()]
