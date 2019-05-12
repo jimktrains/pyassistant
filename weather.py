@@ -3,31 +3,51 @@
 import modules
 import urllib.request
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import dbf
 import json
+from skyfield import api
+from skyfield import almanac
+import math
 
 ziptable = dbf.Table(modules.config['storage']['zipdbf'])
 ziptable.open()
 zipidx = ziptable.create_index(lambda rec: rec.zcta5ce10)
+
+ts = api.load.timescale()
+ephem = api.load('de421.bsp')
 
 def actions():
     return {
         '': get,
         'get': get,
         'details': details,
+        'astronomical': astronomical,
+        'srss' : astronomical,
     }
 
-def get_weather_et(parser, args):
-    parser.add_argument('zipcode', nargs="?", help="zipcode to get the weather for")
-    args = parser.parse_args(args)
+@modules.with_parser("weather.astronomical", "gets the next sunrise and sunset for zipcode")
+def astronomical(parser, fstdin, *args):
+    args = parse_with_zipcode(parser, args)
+    lat, lon = zipcode_to_latlon(args.zipcode)
 
-    default_zip = None
-    if 'weather' in modules.config:
-        if 'default_zip' in modules.config['weather']:
-            default_zip = modules.config['weather']['default_zip']
-    zipcode = args.zipcode or default_zip
+    if lat and lon:
 
+        today = datetime.today().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+        dow = day_of_week_abbriv(today)
+        mon = month_abbriv(today)
+        dom = today.strftime('%d')
+
+        srss = sunrise_sunset(lat, lon)
+        mp = moon_phase()
+        es = equinox_solstice()
+
+
+        # Just assuming the same day since we're not in the artic.
+        result = f"{dow}{mon}{dom} {srss} {mp} {es}"
+        return result.strip()
+
+def zipcode_to_latlon(zipcode):
     if zipcode:
         records = zipidx.search(match=(zipcode,))
         lat = None
@@ -36,9 +56,24 @@ def get_weather_et(parser, args):
             lat = float(record.intptlat10)
             lon = float(record.intptlon10)
             break
+        return (lat, lon)
+    return (None, None)
 
-        if lat is None or lon is None:
-            return f"No lat/lon found for {zipcode}"
+def parse_with_zipcode(parser, args):
+    default_zip = None
+    if 'weather' in modules.config:
+        if 'default_zip' in modules.config['weather']:
+            default_zip = modules.config['weather']['default_zip']
+    parser.add_argument('zipcode', nargs="?", help="zipcode to get the weather for", default=default_zip)
+    args = parser.parse_args(args)
+    return args
+
+
+def get_weather_et(parser, args):
+    args = parse_with_zipcode(parser, args)
+    lat, lon = zipcode_to_latlon(args.zipcode)
+
+    if lat and lon:
 
         cache_key = f"weather:{zipcode}"
         contents = modules.cache_get(cache_key)
@@ -112,7 +147,7 @@ def get(parser, fstdin, *args):
     one_day = timedelta(days=1)
     now = datetime.today().astimezone()
     for hour in hours:
-        target_time = datetime.today().astimezone().replace(hour=hour, minute=00, second=00, microsecond=00)
+        target_time = datetime.today().astimezone().replace(hour=hour, minute=0, second=0, microsecond=0)
         if target_time < now:
             target_time += one_day
         min_diff = timedelta(hours=999)
@@ -225,3 +260,62 @@ def day_of_week_abbriv(dt):
         "S",
     ]
     return lookup_table[dt.weekday()]
+
+def sunrise_sunset(lat, lon):
+    place = api.Topos(lat, lon)
+    one_day = timedelta(days=1)
+    start = datetime.today().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + one_day
+
+    start = ts.utc(start)
+    end = ts.utc(end)
+    srss, sross = almanac.find_discrete(start, end, almanac.sunrise_sunset(ephem, place))
+
+    tz = datetime.now().astimezone().tzinfo
+    (sr,ss) = srss.astimezone(tz)
+
+    t0_time = sr.strftime('%H%M')
+    t0_srss = "SR" if sross[0] else "SS"
+    t1_time = ss.strftime('%H%M')
+    t1_srss = "SR" if sross[1] else "SS"
+    return f"{t0_srss}{t0_time} {t1_srss}{t1_time}"
+
+def moon_phase():
+    lookup_table = [
+        "NM",
+        "FQ",
+        "FM",
+        "LQ",
+    ]
+    end = datetime.today().astimezone().replace(hour=23, minute=59, second=0, microsecond=0)
+    t0 = ts.utc(end)
+
+    mp = almanac.moon_phases(ephem)(t0)
+    mp = lookup_table[mp]
+
+    mf = almanac.fraction_illuminated(ephem, 'moon', t0)
+    mf = math.ceil(mf*100)
+
+    return f"{mp}{mf:02}"
+
+def equinox_solstice():
+    lookup_table = [
+        'VE',
+        'SS',
+        'AE',
+        'WS',
+    ]
+    start = datetime.today().astimezone().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = datetime.today().astimezone().replace(month=12, day=31, hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.today().astimezone()
+    t0 = ts.utc(start)
+    t1 = ts.utc(end)
+    times, events = almanac.find_discrete(t0, t1, almanac.seasons(ephem))
+
+    tz = datetime.now().astimezone().tzinfo
+
+    for yi, ti in zip(events, times):
+        ti = ti.astimezone(tz)
+        if (today.month, today.day) == (ti.month, ti.day):
+            return lookup_table[yi] + ti.strftime('%H%M')
+    return ''
