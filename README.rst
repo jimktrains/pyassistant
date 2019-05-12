@@ -3,6 +3,9 @@ pyassistant
 
 Command-Response framework
 
+Requires python 3.7+. Timezone handling is just much easier, especially in
+`strftime` and `fromisoformat`.
+
 Allows modules to do things and pass the output to the next stage. Sort
 of like a shell, but more constrained. Since ``|`` is special, it's
 accepted as a command line argument but can be replaced by ``,,`` as
