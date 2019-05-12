@@ -4,7 +4,7 @@ import modules
 import os
 import sqlite3
 
-database_file = 'cr.sqlite3'
+database_file = modules.config['storage']['cr'] + '/cr.sqlite3'
 
 database = None
 

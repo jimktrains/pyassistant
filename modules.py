@@ -10,7 +10,6 @@ import logging
 
 logger = logging.getLogger()
 
-cache_db_file = "cache.sqlite3"
 cache_db = None
 
 modules = {}
@@ -91,15 +90,6 @@ def flush_cache():
     cache_db.execute("delete from cache where current_timestamp > expires_at")
     cache_db.commit()
 
-if not os.path.exists(cache_db_file):
-    cache_db = sqlite3.connect(cache_db_file)
-    cache_db.execute("create table cache (id integer primary key autoincrement, " + 
-                     "cache_key varchar(160) not null, " + 
-                     "cache_value text not null, " + 
-                     "expires_at datetime not null)")
-    cache_db.commit()
-else:
-    cache_db = sqlite3.connect(cache_db_file)
 
 config = configparser.ConfigParser()
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -109,7 +99,7 @@ config_options = [
     # pyassistant.ini in current dir
     "pyassistant.ini",
     # ~/.config folder
-    home_dir + "/.config/pyassistant.ini",
+    home_dir + "/.config/pyassistant/pyassistant.ini",
 ]
 
 for config_file in config_options:
@@ -119,3 +109,14 @@ for config_file in config_options:
 
 logger.info("Trying to load config " + config_file)
 config.read(config_file)
+
+cache_db_file = config['storage']['cache'] + '/cache.sqlite3'
+if not os.path.exists(cache_db_file):
+    cache_db = sqlite3.connect(cache_db_file)
+    cache_db.execute("create table cache (id integer primary key autoincrement, " +
+                     "cache_key varchar(160) not null, " +
+                     "cache_value text not null, " +
+                     "expires_at datetime not null)")
+    cache_db.commit()
+else:
+    cache_db = sqlite3.connect(cache_db_file)

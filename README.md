@@ -64,8 +64,6 @@ weather
 
 # ToDo
 
-* Configure storage location for databases
-* Put config and databases into a folder in .config
 * Revisit the piping and leverage it and passing objects more heavily
  * Be less stringly typed
  * Allow for error messages to propogate
@@ -75,7 +73,9 @@ weather
 
     [storage]
     zipdbf=/home/jim/.config/tl_2017_us_zcta510.dbf
-    skyfield_downloads=/home/jim/.confg/pyassistant
+    skyfield=/home/jim/.config/pyassistant
+    cr=/home/jim/.config/pyassistant
+    cache=/home/jim/.config/pyassistant
 
     [out.sms]
     from_number=twilio_phone_number_to_use

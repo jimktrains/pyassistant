@@ -16,7 +16,7 @@ ziptable.open()
 # Yeah, so this is slow and I need to figure out how to persist it.
 zipidx = ziptable.create_index(lambda rec: rec.zcta5ce10)
 
-loader = Loader(modules.config['storage']['skyfield_downloads'])
+loader = Loader(modules.config['storage']['skyfield'])
 ts = loader.timescale()
 ephem = loader('de421.bsp')
 
