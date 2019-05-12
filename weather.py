@@ -8,6 +8,7 @@ import dbf
 import json
 from skyfield import api
 from skyfield import almanac
+from skyfield.api import Loader
 import math
 
 ziptable = dbf.Table(modules.config['storage']['zipdbf'])
@@ -15,8 +16,9 @@ ziptable.open()
 # Yeah, so this is slow and I need to figure out how to persist it.
 zipidx = ziptable.create_index(lambda rec: rec.zcta5ce10)
 
-ts = api.load.timescale()
-ephem = api.load('de421.bsp')
+loader = Loader(modules.config['storage']['skyfield_downloads'])
+ts = loader.timescale()
+ephem = loader('de421.bsp')
 
 def actions():
     return {

@@ -66,15 +66,16 @@ weather
 
 * Configure storage location for databases
 * Put config and databases into a folder in .config
-* Autodownload zipcode dbf file
 * Revisit the piping and leverage it and passing objects more heavily
  * Be less stringly typed
  * Allow for error messages to propogate
+* Autodownload zipcode dbf file
 
 # Config (~/.config/pyassistant.ini)
 
     [storage]
     zipdbf=/home/jim/.config/tl_2017_us_zcta510.dbf
+    skyfield_downloads=/home/jim/.confg/pyassistant
 
     [out.sms]
     from_number=twilio_phone_number_to_use
