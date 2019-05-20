@@ -188,13 +188,14 @@ def get(parser, fstdin, *args):
     response = f"{dow}{mon}{dom}"
     for hour_dt, idx in hours_lookup:
         hour = hour_dt.strftime("%H")
-        temp = int(lookup(root, 'temperature', idx))
+        temp = int(lookup(root, 'temperature[@type="hourly"]', idx))
         cloud_cover = int(lookup(root, 'cloud-amount', idx))
         wind_speed = int(lookup(root, 'wind-speed[@type="sustained"]', idx))
         wind_dir = human_dir(int(lookup(root, 'direction[@type="wind"]', idx)))
         chance_precip = int(lookup(root, 'probability-of-precipitation', idx))
+        humidity = int(lookup(root, 'humidity', idx))
         # I don't like hardcoding the F unit
-        response += f"\n{hour} {temp}F {cloud_cover:02}O {chance_precip:02}P {wind_speed}{wind_dir}"
+        response += f"\n{hour} {temp}F {cloud_cover:02}O {chance_precip:02}P {humidity:02}H {wind_speed}{wind_dir}"
     response = response.strip()
     return response
 
